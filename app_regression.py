@@ -261,7 +261,7 @@ def get_current_data():
 if page == "🏠 監督式學習概述":
     st.markdown('<h1 class="main-header">監督式學習(Supervised Learning)-回歸 互動教學平台</h1>', unsafe_allow_html=True)
     
-    st.markdown("## 🎯 什麼是監督式學習？")
+    st.markdown("## 🏅 什麼是監督式學習？")
     
     st.markdown("""
     **監督式學習**是機器學習的一個重要分支，其特點是：
@@ -269,6 +269,16 @@ if page == "🏠 監督式學習概述":
     1. **有標籤的訓練數據**：每個樣本都有對應的正確答案
     2. **學習映射關係**：從輸入特徵到輸出標籤的函數關係
     3. **預測新數據**：用學到的模型對未見過的數據進行預測
+    """)
+    
+    st.markdown("## 🎯 什麼是回歸？")
+    
+    st.markdown("""
+    回歸(Regression)是監督式學習的重要分支，目標是預測連續的數值輸出：
+    
+    1. **連續輸出**：預測結果是實數值，可以是任意精度的數字
+    2. **函數映射**：學習從輸入特徵到連續輸出的數學函數關係
+    3. **趨勢預測**：捕捉數據中的趨勢和模式來進行數值預測
     """)
     
     st.markdown("### 🔍 回歸 vs 分類")
@@ -1082,7 +1092,30 @@ elif page == "⚖️ 正則化回歸":
     
     with col1:
         reg_type = st.selectbox("選擇正則化類型：", ["Ridge", "Lasso", "ElasticNet"])
-        alpha = st.slider("正則化強度 (α)：", 0.01, 10.0, 1.0, 0.01)
+        
+        # 使用對數尺度的滑動條，更容易調整小數值
+        alpha_log = st.slider(
+            "正則化強度 (α) - 對數尺度：", 
+            min_value=-4.0,  # 10^-4 = 0.0001
+            max_value=2.0,   # 10^1 = 10
+            value=-1.0,      # 10^-1 = 0.1 (更合理的默認值)
+            step=0.1,
+            help="滑動條為對數尺度：-4表示0.0001，0表示1.0，1表示10"
+        )
+        alpha = 10 ** alpha_log
+        
+        # 顯示實際的α值
+        st.write(f"實際 α 值：{alpha:.4f}")
+        
+        # 根據α值給出建議
+        if alpha < 0.001:
+            st.info("💡 極低正則化：適合高維數據或需要保留所有特徵")
+        elif alpha < 0.1:
+            st.info("💡 低正則化：適合輕微過擬合的情況")
+        elif alpha < 1.0:
+            st.info("💡 中等正則化：平衡偏差和方差")
+        else:
+            st.warning("⚠️ 高正則化：可能導致欠擬合，謹慎使用")
     
     with col2:
         test_size = st.slider("測試集比例：", 0.1, 0.5, 0.2, 0.05)
@@ -1130,8 +1163,11 @@ elif page == "⚖️ 正則化回歸":
         train_rmse = np.sqrt(mean_squared_error(y_train, y_train_pred))
         test_rmse = np.sqrt(mean_squared_error(y_test, y_test_pred))
         
+        # 計算特徵數量（非零係數）
+        non_zero_features = np.sum(np.abs(model.coef_) > 1e-6)
+        
         # 顯示結果
-        col1, col2, col3, col4 = st.columns(4)
+        col1, col2, col3, col4, col5 = st.columns(5)
         
         with col1:
             st.metric("Train-Data R²", f"{train_r2:.4f}")
@@ -1141,15 +1177,44 @@ elif page == "⚖️ 正則化回歸":
             st.metric("Train-Data RMSE", f"{train_rmse:.2f}")
         with col4:
             st.metric("Test-Data RMSE", f"{test_rmse:.2f}")
+        with col5:
+            st.metric("特徵數量", f"{non_zero_features}/{len(model.coef_)}")
         
-        # 正則化效果分析
-        regularization_strength = train_r2 - test_r2
-        if regularization_strength > 0.1:
-            st.warning(f"⚠️ 可能需要增加正則化強度！R²差距：{regularization_strength:.4f}")
-        elif regularization_strength < -0.05:
-            st.info("ℹ️ 可能正則化過強，考慮減少α值")
+        # 改善的正則化效果分析
+        # 首先檢查模型是否有效
+        if test_r2 < 0 or train_r2 < 0:
+            st.error("❌ 模型效果極差！R²為負值，請調整參數")
+            if alpha > 1.0:
+                st.warning("💡 建議：正則化強度過高，嘗試降低α值")
+            elif non_zero_features == 0:
+                st.warning("💡 建議：所有特徵被正則化歸零，嘗試降低α值")
+        elif test_r2 < 0.1 and train_r2 < 0.1:
+            st.warning("⚠️ 模型整體表現不佳，考慮調整正則化參數或增加特徵")
         else:
-            st.success("✅ 正則化效果良好！")
+            # 檢查過擬合/欠擬合
+            regularization_gap = train_r2 - test_r2
+            if regularization_gap > 0.15:
+                st.warning(f"⚠️ 可能過擬合！建議增加正則化強度 (當前α={alpha})")
+                st.markdown(f"R²差距：{regularization_gap:.4f}")
+            elif regularization_gap < -0.1:
+                st.info(f"ℹ️ 可能欠擬合，建議降低正則化強度 (當前α={alpha})")
+                st.markdown(f"R²差距：{regularization_gap:.4f}")
+            elif non_zero_features < len(model.coef_) * 0.1:
+                st.warning(f"⚠️ 正則化過強！僅保留{non_zero_features}個特徵，考慮降低α值")
+            else:
+                st.success("✅ 正則化效果良好！")
+                st.markdown(f"保留了 {non_zero_features}/{len(model.coef_)} 個特徵")
+        
+        # 額外的正則化建議
+        if reg_type == "Lasso" and non_zero_features == 0:
+            st.error("🚨 Lasso將所有特徵歸零！")
+            st.markdown("**建議操作：**")
+            st.markdown("- 🔽 大幅降低α值（嘗試0.001或更小）")
+            st.markdown("- 📊 檢查特徵是否已正確標準化")
+            st.markdown("- 🔍 考慮使用Ridge回歸替代")
+        elif reg_type == "Lasso" and non_zero_features < 3:
+            st.warning(f"⚠️ Lasso僅保留{non_zero_features}個特徵，模型可能過於簡化")
+            st.markdown("**建議：** 適當降低α值以保留更多有用特徵")
         
         # 預測 vs 真實值圖
         col1, col2 = st.columns(2)
@@ -2578,39 +2643,106 @@ elif page == "📏 評價指標詳解":
     # 指標選擇建議
     st.markdown("## 🎯 如何選擇評價指標")
     
+    # 創建四個不同場景的指標選擇建議
     col1, col2 = st.columns(2)
     
     with col1:
-        st.markdown("### ✅ 使用 R² 當...")
+        st.success("### ✅ 使用 R² 決定係數當...")
         st.markdown("""
-        - 需要解釋模型的整體表現
-        - 比較不同模型的效果
-        - 向業務人員報告結果
-        - 進行模型選擇
+        - 📊 **需要解釋模型解釋力**：告訴他人模型能解釋多少變異
+        - 🏆 **模型比較與選擇**：快速比較不同模型的整體表現
+        - 💼 **向業務人員報告**：百分比形式直觀易懂
+        - 📈 **評估線性關係強度**：衡量特徵與目標的線性相關程度
+        - 🎯 **設定性能基準**：R²>0.7通常認為是良好模型
+        - ⚠️ **注意**: 樣本量小時可能過度樂觀
         """)
         
-        st.markdown("### ✅ 使用 RMSE 當...")
+        st.error("### ✅ 使用 RMSE 均方根誤差當...")
         st.markdown("""
-        - 大誤差代價很高
-        - 需要與目標變數相同單位
-        - 優化模型參數
-        - 沒有太多離群值
+        - 💰 **大誤差代價高**：如房價預測、投資決策
+        - 📏 **需要與目標同單位**：便於理解實際誤差大小
+        - 🎛️ **模型調參優化**：梯度下降等優化算法友好
+        - 📊 **正態分布假設下**：誤差符合正態分布時最適用
+        - 🔍 **離群值敏感場景**：希望重點關注和懲罰大誤差
+        - ⚠️ **避免**: 數據中有很多離群值時
         """)
     
     with col2:
-        st.markdown("### ✅ 使用 MAE 當...")
+        st.warning("### ✅ 使用 MAE 平均絕對誤差當...")
         st.markdown("""
-        - 數據中有離群值
-        - 所有誤差同等重要
-        - 需要穩健的評估
-        - 中位數比平均值更重要
+        - 🛡️ **數據有離群值**：不希望極端值影響評估
+        - ⚖️ **所有誤差同等重要**：大小誤差一視同仁
+        - 📊 **中位數比平均值重要**：關注典型誤差而非極端情況
+        - 🏥 **醫療診斷場景**：每個病人的誤差都同樣重要
+        - 🎯 **穩健評估需求**：希望評估結果不受極值干擾
+        - ⚠️ **避免**: 需要可微分優化的算法訓練時
         """)
         
-        st.markdown("### ✅ 使用 MSE 當...")
+        st.info("### ✅ 使用 MSE 均方誤差當...")
         st.markdown("""
-        - 在算法內部優化
-        - 進行數學推導
-        - 需要可導的損失函數
+        - 🧮 **算法內部損失函數**：線性回歸等算法的標準損失
+        - 📐 **數學推導與分析**：數學性質良好，便於理論分析
+        - 🔄 **梯度下降優化**：可微分特性適合優化算法
+        - 🏗️ **模型構建階段**：訓練過程中的內部評估
+        - 📚 **學術研究比較**：與其他研究保持一致的評估標準
+        - ⚠️ **報告時轉換**: 向他人匯報時建議轉換為RMSE更直觀
+        """)
+    
+    # 新增實際場景應用建議
+    st.markdown("---")
+    st.markdown("### 🏢 不同行業場景的指標選擇建議")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.markdown("#### 🏠 房地產預測")
+        st.markdown("""
+        - **主要指標**: RMSE
+        - **原因**: 房價誤差以萬元為單位有實際意義
+        - **輔助指標**: R²（解釋模型效果）
+        - **避免**: MSE（平方單位不直觀）
+        """)
+        
+        st.markdown("#### 💊 藥物劑量預測")
+        st.markdown("""
+        - **主要指標**: MAE
+        - **原因**: 每位患者的劑量誤差同等重要
+        - **輔助指標**: RMSE（檢查是否有異常大誤差）
+        - **避免**: 只看R²（可能忽略個體差異）
+        """)
+    
+    with col2:
+        st.markdown("#### 📈 股票價格預測")
+        st.markdown("""
+        - **主要指標**: RMSE
+        - **原因**: 大幅波動的懲罰權重要高
+        - **輔助指標**: MAE（了解典型誤差）
+        - **特殊考慮**: 可能需要MAPE（百分比誤差）
+        """)
+        
+        st.markdown("#### 🌡️ 溫度預測")
+        st.markdown("""
+        - **主要指標**: MAE
+        - **原因**: 溫度預測通常比較穩定，很少有極端離群值
+        - **輔助指標**: R²（評估季節性規律的捕捉）
+        - **注意**: 單位直觀易懂
+        """)
+    
+    with col3:
+        st.markdown("#### 🏭 工業品質控制")
+        st.markdown("""
+        - **主要指標**: RMSE + MAE
+        - **原因**: 既要避免大偏差又要關注整體穩定性
+        - **特殊需求**: 可能需要設定誤差容忍區間
+        - **決策邏輯**: 雙重標準保證品質
+        """)
+        
+        st.markdown("#### 🚗 燃油效率預測")
+        st.markdown("""
+        - **主要指標**: R²
+        - **原因**: 消費者更關心模型能否解釋燃油差異
+        - **輔助指標**: MAE（實際里程誤差）
+        - **應用**: 幫助購車決策制定
         """)
 
 elif page == "🔄 交叉驗證與穩定性":
